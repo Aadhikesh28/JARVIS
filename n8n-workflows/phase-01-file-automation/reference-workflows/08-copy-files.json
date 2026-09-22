@@ -1,0 +1,239 @@
+{
+  "name": "08 - JARVIS Copy Files",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis/copy-files",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "397c752d-8e56-4ce1-9bd5-ff87a64cb1fb",
+      "name": "1. Trigger (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "TRIGGER: Fires on a command like { \"command\": \"copy all screenshots from Downloads into Projects/Assets\" }.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\": \"gpt-4o-mini\", \"response_format\": {\"type\": \"json_object\"}, \"messages\": [{\"role\": \"system\", \"content\": \"Convert the request into JSON with keys: sourcePattern (relative path or wildcard, e.g. 'Downloads\\\\\\\\*.png'), destinationFolder (relative folder path). Reply ONLY JSON.\"}, {\"role\": \"user\", \"content\": \"={{$json[\\\"command\\\"]}}\"}]}"
+      },
+      "id": "6c11769c-90e2-45a6-8e77-674c15dfe644",
+      "name": "2. AI Node (Parse Command)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "notes": "AI NODE: Extracts which files to copy (possibly a wildcard group) and where they should land.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "47c91923-8379-4dba-b975-29d03c9c953d",
+              "name": "sourcePattern",
+              "value": "={{ JSON.parse($json.choices[0].message.content).sourcePattern }}",
+              "type": "string"
+            },
+            {
+              "id": "343a3ea3-940b-411e-a34c-49a08a85026e",
+              "name": "destinationFolder",
+              "value": "={{ JSON.parse($json.choices[0].message.content).destinationFolder }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c5e54e54-4111-4abf-a106-326c0fe9228c",
+      "name": "3. Extract Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        300
+      ],
+      "notes": "Pulls sourcePattern and destinationFolder into usable fields.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "9a4a6b11-8566-43eb-bd95-1bd5b5911fe6",
+              "leftValue": "={{ $json.sourcePattern && $json.sourcePattern.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7c09ddbc-832c-4c8c-b232-cfd2888f8998",
+      "name": "4. Condition (Valid Input?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "notes": "CONDITION: Refuses to continue without a source pattern.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"error\", \"message\": \"Could not determine what to copy from your command.\" } }}",
+        "options": {}
+      },
+      "id": "5c177276-e454-4bff-9e56-c640c979dccc",
+      "name": "Z. Output (Error - Invalid Input)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        480
+      ],
+      "notes": "",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "command": "=powershell -Command \"Copy-Item -Path 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.sourcePattern}}' -Destination 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.destinationFolder}}\\' -Force\""
+      },
+      "id": "ba2da1d1-49d0-4cfd-8b3f-7c280d29a3f2",
+      "name": "5. File Node (Execute Command)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        220
+      ],
+      "notes": "FILE NODE: Copy-Item duplicates the matched file(s) into the destination, leaving the originals in place \u2014 unlike Move-Item in workflow 05.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"success\", \"message\": \"Copied {{$json.sourcePattern}} to {{$json.destinationFolder}}\" } }}",
+        "options": {}
+      },
+      "id": "ec2ea177-4fa3-461d-a59c-b9009f8d38f5",
+      "name": "6. Output (Respond to Webhook)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        220
+      ],
+      "notes": "",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "1. Trigger (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "2. AI Node (Parse Command)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. AI Node (Parse Command)": {
+      "main": [
+        [
+          {
+            "node": "3. Extract Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Extract Parameters": {
+      "main": [
+        [
+          {
+            "node": "4. Condition (Valid Input?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Condition (Valid Input?)": {
+      "main": [
+        [
+          {
+            "node": "5. File Node (Execute Command)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Z. Output (Error - Invalid Input)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. File Node (Execute Command)": {
+      "main": [
+        [
+          {
+            "node": "6. Output (Respond to Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "6fc6c3a6-e27e-4e9a-a7fe-e7d2e4187c50",
+  "meta": {
+    "instanceId": "jarvis-file-manager"
+  }
+}

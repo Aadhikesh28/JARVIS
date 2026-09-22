@@ -1,0 +1,239 @@
+{
+  "name": "05 - JARVIS Move File",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis/move-file",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "13d1d811-1b3f-458d-98f3-9618b679d216",
+      "name": "1. Trigger (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "TRIGGER: Fires on a command like { \"command\": \"move report.pdf from Projects to Archive\" }.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\": \"gpt-4o-mini\", \"response_format\": {\"type\": \"json_object\"}, \"messages\": [{\"role\": \"system\", \"content\": \"Convert the request into JSON with keys: filePath (current relative path incl. filename), destinationFolder (relative folder path). Reply ONLY JSON.\"}, {\"role\": \"user\", \"content\": \"={{$json[\\\"command\\\"]}}\"}]}"
+      },
+      "id": "c1c363d5-6bb5-4950-8439-09ddb66fe5bf",
+      "name": "2. AI Node (Parse Command)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "notes": "AI NODE: Extracts source file and destination folder from the sentence.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ff934b71-fa17-49b7-92af-621d20650e84",
+              "name": "filePath",
+              "value": "={{ JSON.parse($json.choices[0].message.content).filePath }}",
+              "type": "string"
+            },
+            {
+              "id": "fde5e632-3445-4ddd-a7de-5b439d4bab25",
+              "name": "destinationFolder",
+              "value": "={{ JSON.parse($json.choices[0].message.content).destinationFolder }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b3f942d2-6c9c-4ce6-9bad-8debecd5832b",
+      "name": "3. Extract Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        300
+      ],
+      "notes": "Pulls filePath and destinationFolder into usable fields.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "bd2a9166-24e8-477c-9172-c0992f046b41",
+              "leftValue": "={{ $json.filePath && $json.filePath.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "b06a4c48-32bc-47ab-aee0-6119a56a15c4",
+      "name": "4. Condition (Valid Input?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "notes": "CONDITION: Refuses to continue without a source file path.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"error\", \"message\": \"Could not determine which file to move from your command.\" } }}",
+        "options": {}
+      },
+      "id": "46d3ba52-9598-4c52-9994-936cd73b1648",
+      "name": "Z. Output (Error - Invalid Input)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        480
+      ],
+      "notes": "",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "command": "=powershell -Command \"Move-Item -Path 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.filePath}}' -Destination 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.destinationFolder}}\\' -Force\""
+      },
+      "id": "7dc7228e-41cf-47c0-b427-fa513c1fbc1a",
+      "name": "5. File Node (Execute Command)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        220
+      ],
+      "notes": "FILE NODE: Move-Item relocates the file; -Force overwrites a same-named file already at the destination rather than erroring out.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"success\", \"message\": \"Moved {{$json.filePath}} to {{$json.destinationFolder}}\" } }}",
+        "options": {}
+      },
+      "id": "3f6641ff-fa2e-4f22-a08b-0676e14dd88d",
+      "name": "6. Output (Respond to Webhook)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        220
+      ],
+      "notes": "",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "1. Trigger (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "2. AI Node (Parse Command)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. AI Node (Parse Command)": {
+      "main": [
+        [
+          {
+            "node": "3. Extract Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Extract Parameters": {
+      "main": [
+        [
+          {
+            "node": "4. Condition (Valid Input?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Condition (Valid Input?)": {
+      "main": [
+        [
+          {
+            "node": "5. File Node (Execute Command)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Z. Output (Error - Invalid Input)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. File Node (Execute Command)": {
+      "main": [
+        [
+          {
+            "node": "6. Output (Respond to Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "ceb07ceb-8c00-4493-9843-814b673df501",
+  "meta": {
+    "instanceId": "jarvis-file-manager"
+  }
+}

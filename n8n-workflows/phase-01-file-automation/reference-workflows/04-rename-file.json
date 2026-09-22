@@ -1,0 +1,239 @@
+{
+  "name": "04 - JARVIS Rename File",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis/rename-file",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "22fd9500-09ce-4dd3-a84d-67344db1dc26",
+      "name": "1. Trigger (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "TRIGGER: Fires on a command like { \"command\": \"rename draft.docx to final.docx in Projects\" }.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\": \"gpt-4o-mini\", \"response_format\": {\"type\": \"json_object\"}, \"messages\": [{\"role\": \"system\", \"content\": \"Convert the request into JSON with keys: filePath (current relative path), newName (new filename only, no folders). Reply ONLY JSON.\"}, {\"role\": \"user\", \"content\": \"={{$json[\\\"command\\\"]}}\"}]}"
+      },
+      "id": "1de908a4-c321-4539-94e3-01d461dd4d6b",
+      "name": "2. AI Node (Parse Command)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "notes": "AI NODE: Splits the sentence into 'which file' and 'what to call it now'.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8c948b64-2721-4b14-a051-00b877f1a2d6",
+              "name": "filePath",
+              "value": "={{ JSON.parse($json.choices[0].message.content).filePath }}",
+              "type": "string"
+            },
+            {
+              "id": "0c07cf3a-dfb9-45e1-8fc4-443ba9cb024d",
+              "name": "newName",
+              "value": "={{ JSON.parse($json.choices[0].message.content).newName }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6e256c3d-2fa9-4827-bac3-35d629faea54",
+      "name": "3. Extract Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        300
+      ],
+      "notes": "Pulls filePath and newName into usable fields.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "0abadfc2-d83f-48d4-bf39-f7238c562cf0",
+              "leftValue": "={{ $json.filePath && $json.filePath.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "59009e2c-4aad-4ce3-83a5-41025b09fb9a",
+      "name": "4. Condition (Valid Input?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "notes": "CONDITION: Refuses to continue without a source file path.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"error\", \"message\": \"Could not determine which file to rename from your command.\" } }}",
+        "options": {}
+      },
+      "id": "52cf758f-bc12-40de-ba9d-eeb5a1602d61",
+      "name": "Z. Output (Error - Invalid Input)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        480
+      ],
+      "notes": "",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "command": "=powershell -Command \"Rename-Item -Path 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.filePath}}' -NewName '{{$json.newName}}'\""
+      },
+      "id": "d17b0a5c-20e2-4c95-aa05-3452e2835dee",
+      "name": "5. File Node (Execute Command)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        220
+      ],
+      "notes": "FILE NODE: Rename-Item only changes the name, not the folder \u2014 that's what keeps rename and move as two separate, predictable commands instead of one that does both.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"success\", \"message\": \"Renamed {{$json.filePath}} to {{$json.newName}}\" } }}",
+        "options": {}
+      },
+      "id": "01c3e605-8d79-4224-aa6c-2fe19a710a12",
+      "name": "6. Output (Respond to Webhook)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        220
+      ],
+      "notes": "",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "1. Trigger (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "2. AI Node (Parse Command)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. AI Node (Parse Command)": {
+      "main": [
+        [
+          {
+            "node": "3. Extract Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Extract Parameters": {
+      "main": [
+        [
+          {
+            "node": "4. Condition (Valid Input?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Condition (Valid Input?)": {
+      "main": [
+        [
+          {
+            "node": "5. File Node (Execute Command)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Z. Output (Error - Invalid Input)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. File Node (Execute Command)": {
+      "main": [
+        [
+          {
+            "node": "6. Output (Respond to Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "6eb92fa3-86f6-4289-86ac-687b945b29d6",
+  "meta": {
+    "instanceId": "jarvis-file-manager"
+  }
+}

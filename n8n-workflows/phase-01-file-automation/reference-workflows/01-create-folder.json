@@ -1,0 +1,239 @@
+{
+  "name": "01 - JARVIS Create Folder",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis/create-folder",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "3537d683-f3ba-4aa7-b2cf-b3d440353c16",
+      "name": "1. Trigger (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "TRIGGER: Fires when JARVIS (or you, via curl/Postman) POSTs a command like { \"command\": \"make a folder called Reports inside Projects\" } to http://localhost:5678/webhook/jarvis/create-folder",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\": \"gpt-4o-mini\", \"response_format\": {\"type\": \"json_object\"}, \"messages\": [{\"role\": \"system\", \"content\": \"You convert a plain-English file-management request into JSON with keys: folderName (string), parentFolder (string, relative, default ''). Reply ONLY with JSON, e.g. {\\\"folderName\\\":\\\"Reports\\\",\\\"parentFolder\\\":\\\"Projects\\\"}\"}, {\"role\": \"user\", \"content\": \"={{$json[\\\"command\\\"]}}\"}]}"
+      },
+      "id": "7effaf9d-6c47-4474-9ebb-1bcf7ff927b8",
+      "name": "2. AI Node (Parse Command)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "notes": "AI NODE: An LLM reads the free-text command and extracts structured fields (folderName, parentFolder) so the next nodes don't have to parse English themselves. This is the only node that understands natural language \u2014 everything after it is deterministic.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5369fc84-8b61-4e5d-b4ff-94c36ede936b",
+              "name": "folderName",
+              "value": "={{ JSON.parse($json.choices[0].message.content).folderName }}",
+              "type": "string"
+            },
+            {
+              "id": "c92da878-4f4f-4964-a366-6b2e65df83be",
+              "name": "parentFolder",
+              "value": "={{ JSON.parse($json.choices[0].message.content).parentFolder }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b680a127-8e60-49b4-b214-d755cb12a67a",
+      "name": "3. Extract Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        300
+      ],
+      "notes": "CONDITIONS PREP: Pulls the AI's JSON string reply into real n8n fields you can reference as {{$json.folderName}} in later nodes.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "f01e9d5d-fc3b-402d-8ca8-4ecd59c92a9d",
+              "leftValue": "={{ $json.folderName && $json.folderName.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6da0a6af-2c37-4b0a-a69c-16f18c577c25",
+      "name": "4. Condition (Valid Name?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "notes": "CONDITION: Safety gate \u2014 refuses to run any command if the AI couldn't extract a folder name (e.g. ambiguous request). TRUE branch proceeds, FALSE branch reports an error.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "command": "=powershell -Command \"New-Item -ItemType Directory -Force -Path 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.parentFolder}}\\{{$json.folderName}}'\""
+      },
+      "id": "e8241821-25ee-4bb3-8cec-6699cc3c8645",
+      "name": "5. File Node (Execute Command)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        220
+      ],
+      "notes": "FILE NODE: Runs the actual Windows action via PowerShell's New-Item cmdlet. -Force means it won't error if the folder already exists. Path is always anchored under the JarvisManaged root for safety.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"success\", \"message\": \"Folder created: \" + $json.folderName } }}",
+        "options": {}
+      },
+      "id": "a5f30807-cb19-4e9d-9c29-5347411b63da",
+      "name": "6. Output (Respond to Webhook)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        220
+      ],
+      "notes": "",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"error\", \"message\": \"Could not determine a folder name from your command.\" } }}",
+        "options": {}
+      },
+      "id": "7a59f531-93d3-49bb-94a4-d3f46caa9ee4",
+      "name": "7. Output (Error)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        420
+      ],
+      "notes": "",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "1. Trigger (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "2. AI Node (Parse Command)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. AI Node (Parse Command)": {
+      "main": [
+        [
+          {
+            "node": "3. Extract Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Extract Parameters": {
+      "main": [
+        [
+          {
+            "node": "4. Condition (Valid Name?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Condition (Valid Name?)": {
+      "main": [
+        [
+          {
+            "node": "5. File Node (Execute Command)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "7. Output (Error)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. File Node (Execute Command)": {
+      "main": [
+        [
+          {
+            "node": "6. Output (Respond to Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "6f15bc80-6477-465d-9838-e32837b55c79",
+  "meta": {
+    "instanceId": "jarvis-file-manager"
+  }
+}

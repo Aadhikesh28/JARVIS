@@ -1,0 +1,239 @@
+{
+  "name": "02 - JARVIS Create File",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis/create-file",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "18fa1b27-2470-4e1d-ac9e-bf13388e61bf",
+      "name": "1. Trigger (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "TRIGGER: Fires on a command like { \"command\": \"create a file called notes.txt in Projects with 'hello' inside\" }.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\": \"gpt-4o-mini\", \"response_format\": {\"type\": \"json_object\"}, \"messages\": [{\"role\": \"system\", \"content\": \"Convert the request into JSON with keys: filePath (relative path incl. filename), content (string, default ''). Reply ONLY JSON.\"}, {\"role\": \"user\", \"content\": \"={{$json[\\\"command\\\"]}}\"}]}"
+      },
+      "id": "066d4778-dea7-4431-a90c-b18882854654",
+      "name": "2. AI Node (Parse Command)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "notes": "AI NODE: Extracts the relative file path and any initial text content from the sentence.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "148894d9-687c-4086-ac70-3be05d3fa07b",
+              "name": "filePath",
+              "value": "={{ JSON.parse($json.choices[0].message.content).filePath }}",
+              "type": "string"
+            },
+            {
+              "id": "c0d1f616-a095-4c4d-9aec-0b49909c755e",
+              "name": "content",
+              "value": "={{ JSON.parse($json.choices[0].message.content).content }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "21e170c3-5983-4eaf-a00c-a35a80a167fd",
+      "name": "3. Extract Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        300
+      ],
+      "notes": "Pulls filePath/content out of the AI's reply into usable fields.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "f1e6c88e-88db-4c3a-ae99-7bbeb12106e1",
+              "leftValue": "={{ $json.filePath && $json.filePath.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "6fee10e6-4160-4694-b5bf-7f93f3aadc1b",
+      "name": "4. Condition (Valid Input?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "notes": "CONDITION: Refuses to continue if no file path could be determined \u2014 this is what stops a vague command from creating a stray file somewhere unexpected.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"error\", \"message\": \"Could not determine a file path from your command.\" } }}",
+        "options": {}
+      },
+      "id": "c4e106f5-0b98-4269-8c1e-4d6b12c0b5f1",
+      "name": "Z. Output (Error - Invalid Input)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        480
+      ],
+      "notes": "",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "command": "=powershell -Command \"New-Item -ItemType File -Force -Path 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.filePath}}' | Out-Null; Set-Content -Path 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.filePath}}' -Value '{{$json.content}}'\""
+      },
+      "id": "3aad7f8b-d6f9-4dbb-9c5f-4308f2dd7bd6",
+      "name": "5. File Node (Execute Command)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1120,
+        220
+      ],
+      "notes": "FILE NODE: Creates the file (New-Item -Force makes parent folders too) then writes the starting content with Set-Content.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"success\", \"message\": \"File created: {{$json.filePath}}\" } }}",
+        "options": {}
+      },
+      "id": "98a456d4-b6e2-4810-97d9-4ab40c31b3b1",
+      "name": "6. Output (Respond to Webhook)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        220
+      ],
+      "notes": "",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "1. Trigger (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "2. AI Node (Parse Command)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. AI Node (Parse Command)": {
+      "main": [
+        [
+          {
+            "node": "3. Extract Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Extract Parameters": {
+      "main": [
+        [
+          {
+            "node": "4. Condition (Valid Input?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Condition (Valid Input?)": {
+      "main": [
+        [
+          {
+            "node": "5. File Node (Execute Command)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Z. Output (Error - Invalid Input)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. File Node (Execute Command)": {
+      "main": [
+        [
+          {
+            "node": "6. Output (Respond to Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "bd6bb08d-9e48-4d74-b75c-a813082e5015",
+  "meta": {
+    "instanceId": "jarvis-file-manager"
+  }
+}

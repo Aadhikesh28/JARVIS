@@ -1,0 +1,302 @@
+{
+  "name": "03 - JARVIS Delete File (Confirmation Required)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "jarvis/delete-file",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "eb5fc8c8-26bd-44bd-b6c6-ca41f68c34a0",
+      "name": "1. Trigger (Webhook)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        300
+      ],
+      "notes": "TRIGGER: Fires on a command like { \"command\": \"delete old-draft.docx in Projects\", \"confirmed\": false }. 'confirmed' should default to false \u2014 JARVIS should always ask you first and only resend with confirmed:true once you explicitly say yes.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "{\"model\": \"gpt-4o-mini\", \"response_format\": {\"type\": \"json_object\"}, \"messages\": [{\"role\": \"system\", \"content\": \"Convert the request into JSON with key: filePath (relative path incl. filename). Reply ONLY JSON.\"}, {\"role\": \"user\", \"content\": \"={{$json[\\\"command\\\"]}}\"}]}"
+      },
+      "id": "83cb2e12-7261-47f1-9691-47684d8455a3",
+      "name": "2. AI Node (Parse Command)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ],
+      "notes": "AI NODE: Extracts which file the user means. It does NOT decide whether deletion is allowed \u2014 that decision is handled entirely by the confirmation Condition node below, never by the AI.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "5442c0cf-2652-4332-905f-1d837e9c5518",
+              "name": "filePath",
+              "value": "={{ JSON.parse($json.choices[0].message.content).filePath }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f8ff0bba-2e80-4cd1-a43c-90302ef4fc57",
+      "name": "3. Extract Parameters",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        680,
+        300
+      ],
+      "notes": "Pulls filePath out of the AI's reply.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "e983e6d9-dfb1-4d6d-ad7c-e1b38935d002",
+              "leftValue": "={{ $json.filePath && $json.filePath.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "3866d2ce-faef-4f23-8bcc-e8fcc662d835",
+      "name": "4. Condition (Valid Input?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ],
+      "notes": "CONDITION: Refuses to continue if no file could be identified.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"error\", \"message\": \"Could not determine which file to delete from your command.\" } }}",
+        "options": {}
+      },
+      "id": "628e3d3d-7922-4618-b102-1d18e21805a6",
+      "name": "Z. Output (Error - Invalid Input)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        900,
+        480
+      ],
+      "notes": "",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "be2a37eb-7d01-46b0-9f58-ad88e09cc630",
+              "leftValue": "={{ $json.confirmed === true }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "7f71936c-9fc5-4a06-b598-5e8e3ef07682",
+      "name": "5. Condition (Confirmed = true?)",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1120,
+        220
+      ],
+      "notes": "SAFETY GATE (this is the confirmation the system prompt requires): only continues to the delete step if the incoming request explicitly carries confirmed:true. Every other value \u2014 false, missing, a string 'true', anything \u2014 falls through to the 'awaiting confirmation' branch instead of deleting.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"awaiting_confirmation\", \"message\": \"This will permanently delete {{$json.filePath}}. Resend the same command with \\\"confirmed\\\": true to proceed.\" } }}",
+        "options": {}
+      },
+      "id": "406f43b8-df40-44a7-aff1-6868711aa7b6",
+      "name": "Y. Output (Needs Confirmation)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1120,
+        420
+      ],
+      "notes": "",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "command": "=powershell -Command \"Remove-Item -Path 'C:\\\\Users\\\\Aadhi\\\\JarvisManaged\\{{$json.filePath}}' -Force\""
+      },
+      "id": "9407bb53-1a2e-4b25-bd1e-360b75a17604",
+      "name": "5. File Node (Execute Command)",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        140
+      ],
+      "notes": "FILE NODE: The ONLY node that actually deletes anything, and it is unreachable unless the confirmation gate above it passed. Remove-Item -Force deletes read-only files too, so be deliberate.",
+      "notesInFlow": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ { \"status\": \"success\", \"message\": \"Deleted: {{$json.filePath}}\" } }}",
+        "options": {}
+      },
+      "id": "6c739e24-4463-4117-9f03-1c215b4a31f3",
+      "name": "6. Output (Respond to Webhook)",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1560,
+        140
+      ],
+      "notes": "",
+      "notesInFlow": true
+    }
+  ],
+  "connections": {
+    "1. Trigger (Webhook)": {
+      "main": [
+        [
+          {
+            "node": "2. AI Node (Parse Command)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. AI Node (Parse Command)": {
+      "main": [
+        [
+          {
+            "node": "3. Extract Parameters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Extract Parameters": {
+      "main": [
+        [
+          {
+            "node": "4. Condition (Valid Input?)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Condition (Valid Input?)": {
+      "main": [
+        [
+          {
+            "node": "5. Condition (Confirmed = true?)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Z. Output (Error - Invalid Input)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Condition (Confirmed = true?)": {
+      "main": [
+        [
+          {
+            "node": "5. File Node (Execute Command)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Y. Output (Needs Confirmation)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. File Node (Execute Command)": {
+      "main": [
+        [
+          {
+            "node": "6. Output (Respond to Webhook)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "ce74417d-7c0c-4007-87e5-b2e7f6a96e95",
+  "meta": {
+    "instanceId": "jarvis-file-manager"
+  }
+}
